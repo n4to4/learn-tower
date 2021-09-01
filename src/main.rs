@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::future::Future;
-use std::pin::Pin;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -54,6 +53,7 @@ where
     }
 }
 
+/*
 #[derive(Default)]
 struct DemoApp {
     counter: Arc<AtomicUsize>,
@@ -86,8 +86,56 @@ impl Service<Request> for DemoApp {
         })
     }
 }
+*/
+
+struct AppFn<F> {
+    f: F,
+}
+
+fn app_fn<F, Ret>(f: F) -> AppFn<F>
+where
+    F: FnMut(Request) -> Ret,
+    Ret: Future<Output = Result<Response, anyhow::Error>>,
+{
+    AppFn { f }
+}
+
+impl<F, Ret> Service<Request> for AppFn<F>
+where
+    F: FnMut(Request) -> Ret,
+    Ret: Future<Output = Result<Response, anyhow::Error>>,
+{
+    type Response = Response;
+    type Error = anyhow::Error;
+    type Future = Ret;
+
+    fn poll_ready(&mut self, _cx: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, req: Request) -> Self::Future {
+        (self.f)(req)
+    }
+}
 
 #[tokio::main]
 async fn main() {
-    run(DemoApp::default()).await;
+    let counter = Arc::new(AtomicUsize::new(0));
+    run(app_fn(move |mut req| {
+        let counter = Arc::clone(&counter);
+        async move {
+            println!("Handling a request for {}", req.path_and_query);
+            let counter = counter.fetch_add(1, Ordering::SeqCst);
+            anyhow::ensure!(counter % 4 != 2, "Failing 25% of the time, just for fun");
+            req.headers
+                .insert("X-Counter".to_owned(), counter.to_string());
+            let res = Response {
+                status: 200,
+                headers: req.headers,
+                body: req.body,
+            };
+            Ok::<_, anyhow::Error>(res)
+        }
+    }))
+    .await
 }
