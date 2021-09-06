@@ -1,27 +1,16 @@
-use hyper::{Body, Request, Response, Server};
-use std::{convert::Infallible, net::SocketAddr};
-
-#[tokio::main]
-async fn main() {
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-
-    let factory = DemoAppFactory {
-        counter: Arc::new(AtomicUsize::new(0)),
-    };
-
-    let server = Server::bind(&addr).serve(factory);
-
-    if let Err(e) = server.await {
-        eprintln!("server error: {}", e);
-    }
-}
-
+use hyper::server::conn::AddrStream;
 use hyper::service::Service;
+use hyper::{Body, Request, Response, Server};
 use std::future::Ready;
 use std::sync::{atomic::AtomicUsize, Arc};
 use std::task::Poll;
+use std::{convert::Infallible, net::SocketAddr};
 
 struct DemoApp {
+    counter: Arc<AtomicUsize>,
+}
+
+struct DemoAppFactory {
     counter: Arc<AtomicUsize>,
 }
 
@@ -46,12 +35,6 @@ impl Service<Request<Body>> for DemoApp {
     }
 }
 
-use hyper::server::conn::AddrStream;
-
-struct DemoAppFactory {
-    counter: Arc<AtomicUsize>,
-}
-
 impl Service<&AddrStream> for DemoAppFactory {
     type Response = DemoApp;
     type Error = Infallible;
@@ -66,5 +49,20 @@ impl Service<&AddrStream> for DemoAppFactory {
         std::future::ready(Ok(DemoApp {
             counter: Arc::clone(&self.counter),
         }))
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+
+    let factory = DemoAppFactory {
+        counter: Arc::new(AtomicUsize::new(0)),
+    };
+
+    let server = Server::bind(&addr).serve(factory);
+
+    if let Err(e) = server.await {
+        eprintln!("server error: {}", e);
     }
 }
