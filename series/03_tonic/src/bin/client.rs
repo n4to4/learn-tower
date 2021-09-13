@@ -25,6 +25,6 @@ async fn main() -> Result<()> {
         .await
         .context("Unable to send echo request")?;
 
-    println!("{:?}", res);
+    println!("{:#?}", res);
     Ok(())
 }
